@@ -65,7 +65,8 @@ const binance = new Binance().options({
   APIKEY: process.env.APIKEY,
   APISECRET: process.env.APISECRET,
   useServerTime: true,
-  reconnect: false,
+  reconnect: true,
+  verbose: true,
   test: false
 }, () => {
   binance.exchangeInfo((exchangeInfoError, exchangeInfoData) => {
