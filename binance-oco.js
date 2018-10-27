@@ -45,21 +45,28 @@ const { argv } = require('yargs')
   .number('S')
   .alias('S', 'scaleOutAmount')
   .describe('S', 'Set amount to sell (scale out) at target price (if different from amount)');
+  // '-x <testMode>'
+  // .boolean('x')
+  // .alias('x', 'testMode')
+  // .default(false)
+  // .describe('x', 'Run the client in test mode (simulate orders');
 
 let {
   p: pair, a: amount, b: buyPrice, s: stopPrice, l: limitPrice, t: targetPrice, c: cancelPrice,
-  S: scaleOutAmount,
+  S: scaleOutAmount
 } = argv;
 
 pair = pair.toUpperCase();
 
 const Binance = require('node-binance-api');
+const moment = require('moment');
 
 const binance = new Binance().options({
   APIKEY: process.env.APIKEY,
   APISECRET: process.env.APISECRET,
   useServerTime: true,
   reconnect: false,
+  test: false
 }, () => {
   binance.exchangeInfo((exchangeInfoError, exchangeInfoData) => {
     if (exchangeInfoError) {
@@ -260,7 +267,7 @@ const binance = new Binance().options({
 
     binance.websockets.trades([pair], (trades) => {
       const { s: symbol, p: price } = trades;
-
+      // order is placed
       if (buyOrderId) {
         if (!cancelPrice) {
           console.log(`${symbol} trade update. price: ${price} buy: ${buyPrice}`);
@@ -285,7 +292,7 @@ const binance = new Binance().options({
         }
       } else if (stopOrderId || targetOrderId) {
         console.log(`${symbol} trade update. price: ${price} stop: ${stopPrice} target: ${targetPrice}`);
-
+        // if target hit then cancel stop and place target order
         if (stopOrderId && !targetOrderId && price >= targetPrice && !isCancelling) {
           isCancelling = true;
           binance.cancel(symbol, stopOrderId, (error, response) => {
@@ -365,4 +372,13 @@ const binance = new Binance().options({
 process.on('exit', () => {
   const endpoints = binance.websockets.subscriptions();
   binance.websockets.terminate(Object.entries(endpoints));
+});
+
+process.once('SIGINT', function (code) {
+  console.log(`SIGINT received at ${moment()}`);
+});
+
+
+process.once('SIGTERM', function (code) {
+  console.log(`SIGTERM received at ${moment()}` );
 });
