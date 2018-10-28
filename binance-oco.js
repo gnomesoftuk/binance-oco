@@ -218,6 +218,7 @@ const binance = new Binance().options({
       binance.sell(pair, targetSellAmount, targetPrice, { type: 'LIMIT', newOrderRespType: 'FULL' }, sellComplete);
       if (stopPrice && targetSellAmount !== stopSellAmount) {
         stopSellAmount -= targetSellAmount;
+        // place a stop for the remainder of the position
         placeStopOrder();
       }
     };
@@ -252,7 +253,7 @@ const binance = new Binance().options({
       }
     };
 
-    // determine buy order type
+    // determine order type
     if (buyPrice === 0) {
       console.log(`${moment()}: ${pair} place market buy order for ${amount}`);
       binance.marketBuy(pair, amount, { type: 'MARKET', newOrderRespType: 'FULL' }, buyComplete);
@@ -288,6 +289,7 @@ const binance = new Binance().options({
           if (((price < buyPrice && price <= cancelPrice)
             || (price > buyPrice && price >= cancelPrice))
             && !isCancelling) {
+              console.log(`${moment()}: ${symbol} cancelling untriggered order because it moved outside the desired price range without a fill.`)
             isCancelling = true;
             binance.cancel(symbol, buyOrderId, (error, response) => {
               isCancelling = false;
@@ -303,9 +305,9 @@ const binance = new Binance().options({
         }
       } else if (stopOrderId || targetOrderId) {
         console.log(`${moment()}: ${symbol} trade update. price: ${price} stop: ${stopPrice} target: ${targetPrice}`);
-        // if target hit then cancel stop and place target order
         if (stopOrderId && !targetOrderId && price >= targetPrice && !isCancelling) {
           isCancelling = true;
+          console.log(`${moment()}: ${symbol} cancelling stop order because target price was hit.`)
           binance.cancel(symbol, stopOrderId, (error, response) => {
             isCancelling = false;
             if (error) {
@@ -318,7 +320,7 @@ const binance = new Binance().options({
             placeTargetOrder();
           });
         } else if (targetOrderId && !stopOrderId && price <= stopPrice && !isCancelling) {
-          // cancel target order if price has broken stop price and not already being cancelled.
+          console.log(`${moment()}: ${symbol} cancelling target order because stop price was hit.`)
           isCancelling = true;
           binance.cancel(symbol, targetOrderId, (error, response) => {
             isCancelling = false;
@@ -333,6 +335,8 @@ const binance = new Binance().options({
             if (targetSellAmount !== stopSellAmount) {
               stopSellAmount += targetSellAmount;
             }
+            // there is a risk the stop loss will not be triggered if price has jumped though in this scenario
+            // it would have had to hit target first.
             placeStopOrder();
           });
         }
@@ -377,8 +381,7 @@ const binance = new Binance().options({
         });
       } else if (orderId === targetOrderId) {
         checkOrderFilled(data, () => {
-          // TODO: how does this know whether we have still got a position or not ?
-          console.log(`${moment}: Trade target hit. Time to quit.`);
+          console.log(`${moment}: Trade target hit. You still have ${stopSellAmount} left in the trade with a stop at ${stopPrice}. The trade will not be automated from this point on.`);
           process.exit();
         });
       }
