@@ -188,7 +188,7 @@ const binance = new Binance().options({
 
     const sellComplete = function (error, response) {
       if (error) {
-        console.error('Sell error', error.body);
+        console.error(`${moment()}: Sell error`, error.body);
         process.exit(1);
       }
 
@@ -196,6 +196,7 @@ const binance = new Binance().options({
       console.log(`order id: ${response.orderId}`);
 
       if (!(stopPrice && targetPrice)) {
+        console.error(`${moment()}: No stop or target price - exit`);
         process.exit();
       }
 
@@ -207,10 +208,13 @@ const binance = new Binance().options({
     };
 
     const placeStopOrder = function () {
+      // TODO: could do with automatically calculating a sensible stop loss limit otherwise stop could be skipped!
+      console.log(`${moment()}: ${pair} place stop_loss_limit order for ${stopSellAmount} at ${limitPrice || stopPrice}`);
       binance.sell(pair, stopSellAmount, limitPrice || stopPrice, { stopPrice, type: 'STOP_LOSS_LIMIT', newOrderRespType: 'FULL' }, sellComplete);
     };
 
     const placeTargetOrder = function () {
+      console.log(`${moment()}: ${pair} place target limit order for ${targetSellAmount} at ${targetPrice}`);
       binance.sell(pair, targetSellAmount, targetPrice, { type: 'LIMIT', newOrderRespType: 'FULL' }, sellComplete);
       if (stopPrice && targetSellAmount !== stopSellAmount) {
         stopSellAmount -= targetSellAmount;
@@ -224,6 +228,7 @@ const binance = new Binance().options({
       } else if (targetPrice) {
         placeTargetOrder();
       } else {
+        console.log(`${moment}: No stop or target orders - exit process.`)
         process.exit();
       }
     };
@@ -232,8 +237,8 @@ const binance = new Binance().options({
 
     const buyComplete = function (error, response) {
       if (error) {
-        console.error('Buy error', error.body);
-        process.exit(1);
+        console.error(`${moment()}: Buy error`, error.body);
+        process.exit();
       }
 
       console.log('Buy response', response);
@@ -247,7 +252,9 @@ const binance = new Binance().options({
       }
     };
 
+    // determine buy order type
     if (buyPrice === 0) {
+      console.log(`${moment()}: ${pair} place market buy order for ${amount}`);
       binance.marketBuy(pair, amount, { type: 'MARKET', newOrderRespType: 'FULL' }, buyComplete);
     } else if (buyPrice > 0) {
       binance.prices(pair, (error, ticker) => {
@@ -255,8 +262,11 @@ const binance = new Binance().options({
         console.log(`${pair} price: ${currentPrice}`);
 
         if (buyPrice > currentPrice) {
+          // TODO: Need to calculate a default limit price here otherwise some orders will not be filled.
+          console.log(`${moment()}: ${pair} place buy stop_loss_limit order for ${amount} at ${buyPrice}`);
           binance.buy(pair, amount, buyPrice, { stopPrice: buyPrice, type: 'STOP_LOSS_LIMIT', newOrderRespType: 'FULL' }, buyComplete);
         } else {
+          console.log(`${moment()}: ${pair} place buy limit order for ${amount} at ${buyPrice}`);
           binance.buy(pair, amount, buyPrice, { type: 'LIMIT', newOrderRespType: 'FULL' }, buyComplete);
         }
       });
@@ -268,12 +278,12 @@ const binance = new Binance().options({
 
     binance.websockets.trades([pair], (trades) => {
       const { s: symbol, p: price } = trades;
-      // order is placed
+      // if order is placed
       if (buyOrderId) {
         if (!cancelPrice) {
-          console.log(`${symbol} trade update. price: ${price} buy: ${buyPrice}`);
+          console.log(`${moment()}: ${symbol} trade update. price: ${price} buy: ${buyPrice}`);
         } else {
-          console.log(`${symbol} trade update. price: ${price} buy: ${buyPrice} cancel: ${cancelPrice}`);
+          console.log(`${moment()}: ${symbol} trade update. price: ${price} buy: ${buyPrice} cancel: ${cancelPrice}`);
 
           if (((price < buyPrice && price <= cancelPrice)
             || (price > buyPrice && price >= cancelPrice))
@@ -282,42 +292,44 @@ const binance = new Binance().options({
             binance.cancel(symbol, buyOrderId, (error, response) => {
               isCancelling = false;
               if (error) {
-                console.error(`${symbol} cancel error:`, error.body);
+                console.error(`${moment()}: ${symbol} cancel error:`, error.body);
                 return;
               }
 
-              console.log(`${symbol} cancel response:`, response);
+              console.log(`${moment()}: ${symbol} cancel response:`, response);
               process.exit(0);
             });
           }
         }
       } else if (stopOrderId || targetOrderId) {
-        console.log(`${symbol} trade update. price: ${price} stop: ${stopPrice} target: ${targetPrice}`);
+        console.log(`${moment()}: ${symbol} trade update. price: ${price} stop: ${stopPrice} target: ${targetPrice}`);
         // if target hit then cancel stop and place target order
         if (stopOrderId && !targetOrderId && price >= targetPrice && !isCancelling) {
           isCancelling = true;
           binance.cancel(symbol, stopOrderId, (error, response) => {
             isCancelling = false;
             if (error) {
-              console.error(`${symbol} cancel error:`, error.body);
+              console.error(`${moment()}: ${symbol} cancel error:`, error.body);
               return;
             }
 
             stopOrderId = 0;
-            console.log(`${symbol} cancel response:`, response);
+            console.log(`${moment()}: ${symbol} cancel response:`, response);
             placeTargetOrder();
           });
         } else if (targetOrderId && !stopOrderId && price <= stopPrice && !isCancelling) {
+          // cancel target order if price has broken stop price and not already being cancelled.
           isCancelling = true;
           binance.cancel(symbol, targetOrderId, (error, response) => {
             isCancelling = false;
             if (error) {
-              console.error(`${symbol} cancel error:`, error.body);
+              console.error(`${moment()}: ${symbol} cancel error:`, error.body);
               return;
             }
 
             targetOrderId = 0;
-            console.log(`${symbol} cancel response:`, response);
+            console.log(`${moment()}: ${symbol} cancel response:`, response);
+            // recalculate stop amount now target is gone
             if (targetSellAmount !== stopSellAmount) {
               stopSellAmount += targetSellAmount;
             }
@@ -334,19 +346,20 @@ const binance = new Binance().options({
 
       console.log(`${symbol} ${side} ${orderType} ORDER #${orderId} (${orderStatus})`);
       console.log(`..price: ${price}, quantity: ${quantity}`);
-
+      // if our order not completely filled yet then carry on
       if (orderStatus === 'NEW' || orderStatus === 'PARTIALLY_FILLED') {
         return;
       }
-
+      // if our order not filled then something went wrong
       if (orderStatus !== 'FILLED') {
-        console.log(`Order ${orderStatus}. Reason: ${data.r}`);
+        console.error(`${moment}: Order ${orderStatus}. Reason: ${data.r}`);
         process.exit(1);
       }
-
+      // if order filled or any other status then handle it
       orderFilled(data);
     };
 
+    // check the orders after entry and update amounts
     binance.websockets.userData(() => { }, (data) => {
       const { i: orderId } = data;
 
@@ -359,10 +372,13 @@ const binance = new Binance().options({
         });
       } else if (orderId === stopOrderId) {
         checkOrderFilled(data, () => {
+          console.log(`${moment}: Trade stopped out. Time to quit.`);
           process.exit();
         });
       } else if (orderId === targetOrderId) {
         checkOrderFilled(data, () => {
+          // TODO: how does this know whether we have still got a position or not ?
+          console.log(`${moment}: Trade target hit. Time to quit.`);
           process.exit();
         });
       }
@@ -371,15 +387,20 @@ const binance = new Binance().options({
 });
 
 process.on('exit', () => {
+  console.log(`Process terminated at ${moment()}`)
   const endpoints = binance.websockets.subscriptions();
   binance.websockets.terminate(Object.entries(endpoints));
 });
 
 process.once('SIGINT', function (code) {
-  console.log(`SIGINT received at ${moment()}`);
+  console.log(`SIGINT received at ${moment()} - code ${code}`);
 });
 
 
 process.once('SIGTERM', function (code) {
-  console.log(`SIGTERM received at ${moment()}` );
+  console.log(`SIGTERM received at ${moment()} - code ${code}` );
+});
+
+process.once('SIGHUP', function (code) {
+  console.log(`SIGHUP received at ${moment()} - code ${code}` );
 });
