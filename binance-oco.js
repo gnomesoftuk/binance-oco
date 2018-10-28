@@ -25,6 +25,9 @@ const { argv } = require('yargs')
   .alias('b', 'e')
   .alias('b', 'entry')
   .describe('b', 'Set buy price (0 for market buy)')
+  .number('y')
+  .alias('y', 'trigger')
+  .describe('y', 'Set trigger price')
   // '-s <stopPrice>'
   .number('s')
   .alias('s', 'stop')
@@ -53,7 +56,7 @@ const { argv } = require('yargs')
 
 let {
   p: pair, a: amount, b: buyPrice, s: stopPrice, l: limitPrice, t: targetPrice, c: cancelPrice,
-  S: scaleOutAmount
+  S: scaleOutAmount, y: triggerPrice
 } = argv;
 
 pair = pair.toUpperCase();
@@ -108,6 +111,17 @@ const binance = new Binance().options({
       if (buyPrice * amount < minNotional) {
         console.error(`Buy order does not meet minimum order value ${minNotional}.`);
         process.exit(1);
+      }
+
+      if (triggerPrice) {
+        triggerPrice = binance.roundTicks(triggerPrice, tickSize);
+        if (triggerPrice < minPrice) {
+          console.error(`Trigger price ${triggerPrice} does not meet minimum order price ${minPrice}.`);
+          process.exit(1);
+        }
+      } else {
+        // let the triggerPrice and buyPrice be the same if triggerPrice not specified.
+        triggerPrice = buyPrice
       }
     }
 
@@ -229,7 +243,7 @@ const binance = new Binance().options({
       } else if (targetPrice) {
         placeTargetOrder();
       } else {
-        console.log(`${moment}: No stop or target orders - exit process.`)
+        console.log(`${moment}: No stop or target orders - exit.`)
         process.exit();
       }
     };
@@ -254,18 +268,17 @@ const binance = new Binance().options({
     };
 
     // determine order type
-    if (buyPrice === 0) {
+    if (triggerPrice === 0) {
       console.log(`${moment()}: ${pair} place market buy order for ${amount}`);
       binance.marketBuy(pair, amount, { type: 'MARKET', newOrderRespType: 'FULL' }, buyComplete);
-    } else if (buyPrice > 0) {
+    } else if (triggerPrice > 0) {
       binance.prices(pair, (error, ticker) => {
         const currentPrice = ticker[pair];
         console.log(`${pair} price: ${currentPrice}`);
 
-        if (buyPrice > currentPrice) {
-          // TODO: Need to calculate a default limit price here otherwise some orders will not be filled.
-          console.log(`${moment()}: ${pair} place buy stop_loss_limit order for ${amount} at ${buyPrice}`);
-          binance.buy(pair, amount, buyPrice, { stopPrice: buyPrice, type: 'STOP_LOSS_LIMIT', newOrderRespType: 'FULL' }, buyComplete);
+        if (triggerPrice > currentPrice) {
+          console.log(`${moment()}: ${pair} place buy stop_loss_limit order for ${amount} at ${triggerPrice} limit ${buyPrice}`);
+          binance.buy(pair, amount, buyPrice, { stopPrice: triggerPrice, type: 'STOP_LOSS_LIMIT', newOrderRespType: 'FULL' }, buyComplete);
         } else {
           console.log(`${moment()}: ${pair} place buy limit order for ${amount} at ${buyPrice}`);
           binance.buy(pair, amount, buyPrice, { type: 'LIMIT', newOrderRespType: 'FULL' }, buyComplete);
@@ -282,12 +295,12 @@ const binance = new Binance().options({
       // if order is placed
       if (buyOrderId) {
         if (!cancelPrice) {
-          console.log(`${moment()}: ${symbol} trade update. price: ${price} buy: ${buyPrice}`);
+          console.log(`${moment()}: ${symbol} trade update. price: ${price} buy: ${triggerPrice}`);
         } else {
-          console.log(`${moment()}: ${symbol} trade update. price: ${price} buy: ${buyPrice} cancel: ${cancelPrice}`);
+          console.log(`${moment()}: ${symbol} trade update. price: ${price} buy: ${triggerPrice} cancel: ${cancelPrice}`);
 
-          if (((price < buyPrice && price <= cancelPrice)
-            || (price > buyPrice && price >= cancelPrice))
+          if (((price < triggerPrice && price <= cancelPrice)
+            || (price > triggerPrice && price >= cancelPrice))
             && !isCancelling) {
               console.log(`${moment()}: ${symbol} cancelling untriggered order because it moved outside the desired price range without a fill.`)
             isCancelling = true;
