@@ -70,7 +70,7 @@ const { createLogger, format, transports } = require('winston');
 
 const loggerFormat = format.printf(info => `${info.timestamp} - ${JSON.stringify(info.message)}`);
 
-const logPath = `${process.env.LOGBASEPATH}${pair}-${new Date()}.log`;
+const logPath = `${process.env.LOGBASEPATH || ''}${pair}-${new Date()}.log`;
 
 const moment = require('moment');
 
