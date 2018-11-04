@@ -474,7 +474,6 @@ const binance = new Binance().options({
       logger.error(`handled script interrupt - code ${code}.`);
       cancelOrderAndExit();
     });
-
   });
 });
 
