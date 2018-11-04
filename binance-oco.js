@@ -403,8 +403,9 @@ const binance = new Binance().options({
         s: symbol, p: price, q: quantity, S: side, o: orderType, i: orderId, X: orderStatus,
       } = data;
 
-      logger.info(`Order Executed: ${symbol} ${side} ${orderType} ORDER #${orderId} (${orderStatus})`);
+      logger.info(`Order Updated: ${symbol} ${side} ${orderType} ORDER #${orderId} (${orderStatus})`);
       logger.info(`At price: ${price}, quantity: ${quantity}`);
+
       if (orderStatus === 'NEW' || orderStatus === 'PARTIALLY_FILLED') {
         return;
       }
@@ -412,7 +413,7 @@ const binance = new Binance().options({
       if (orderStatus !== 'FILLED') {
         logger.error(`Order ${orderStatus}. Reason: ${data.r}`);
         if (orderId === stopOrderId) {
-          logger.error(`WARNING STOP ORDER ${symbol} WAS NOT FILLED - YOU MUST CLOSE THE REMAINING POSITION OF ${stopSellAmount} MANUALLY.`);
+          logger.error(`WARNING STOP ORDER ${symbol} : ${stopOrderId} WAS NOT FILLED - YOU MUST CLOSE THE REMAINING POSITION OF ${stopSellAmount} MANUALLY.`);
         }
         // TODO: What if the incomplete order was a sell or target - we need script to stay
         //  alive in this case.
@@ -442,6 +443,50 @@ const binance = new Binance().options({
         });
       }
     });
+
+    const cancelOrderAndExit = () => {
+      // Cancel just the buy order if script terminated. We wouldn't want to cancel the stop for example.
+      // skip the isCancelling check to make sure cancel is always executed - in rare case we get a double cancel
+      // no harm done we will just see an error.
+      if (buyOrderId && !stopOrderId) {
+        logger.info(`<<< Cancel BUY order ${pair} : #${buyOrderId} - (reason: script was interrupted).`);
+        isCancelling = true;
+        binance.cancel(pair, buyOrderId, (error, response) => {
+          isCancelling = false;
+          if (error) {
+            logger.error(`${pair} cancel error:`, error.body);
+            return;
+          }
+          logger.info(`<<< BUY Order ${pair} : #${buyOrderId} cancelled. <<<`);
+          logger.debug(`${pair} cancel response: ${JSON.stringify(response)}`);
+        });
+      } else if (stopOrderId || targetOrderId) {
+        logger.info('Order has already triggered - stop and target will remain but will not be managed.');
+        logger.error(`Buy order ${buyOrderId} Stop order ${stopOrderId} Target order ${targetOrderId}`);
+        process.exit(0);
+      } else {
+        logger.error('Something has gone wrong with the script. Check the exchange and manage the order manually.');
+        logger.error(`Buy order ${buyOrderId} Stop order ${stopOrderId} Target order ${targetOrderId}`);
+        process.exit(1);
+      }
+    };
+
+    // safety mechanism - cancel order if process is interrupted.
+    process.once('SIGINT', (code) => {
+      logger.error(`handled script interrupt - code ${code}.`);
+      cancelOrderAndExit();
+    });
+
+    process.once('SIGTERM', (code) => {
+      logger.error(`handled script interrupt - code ${code}.`);
+      cancelOrderAndExit();
+    });
+
+    process.once('SIGHUP', (code) => {
+      logger.error(`handled script interrupt - code ${code}.`);
+      cancelOrderAndExit();
+    });
+
   });
 });
 
