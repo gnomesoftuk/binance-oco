@@ -46,7 +46,7 @@ const { argv } = require('yargs')
   // '-c <cancelPrice>'
   .number('c')
   .alias('c', 'cancel')
-  .describe('c', 'Set price at which to cancel buy order')
+  .describe('c', 'Set price at which to cancel buy order (default is stop price')
   // '-S <scaleOutAmount>'
   .number('S')
   .alias('S', 'scaleOutAmount')
@@ -221,8 +221,12 @@ const binance = new Binance().options({
       }
     }
 
+    // order will be cancelled at a specific price which is useful for limit orders
+    // otherwise is defaulted to stop price which is useful or stop-limit orders
     if (cancelPrice) {
       cancelPrice = binance.roundTicks(cancelPrice, tickSize);
+    } else if (stopPrice) {
+      cancelPrice = stopPrice;
     }
 
     const NON_BNB_TRADING_FEE = 0.001;
