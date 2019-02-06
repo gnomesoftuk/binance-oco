@@ -363,6 +363,7 @@ const binance = new Binance().options({
           lastPriceUpdate = moment();
         }
 
+        // scale out - replace stop with target and stop
         if (stopOrderId && !targetOrderId && price >= targetPrice && !isCancelling) {
           isCancelling = true;
           logger.info(`<<< Cancel STOP order ${symbol} : #${stopOrderId} - (reason: target price ${targetPrice} was hit).`);
@@ -377,6 +378,7 @@ const binance = new Binance().options({
             logger.debug(`${symbol} cancel response: ${JSON.stringify(response)}`);
             placeTargetOrder();
           });
+        // scale out - if stop hit after target placed then place stop for remainder of position.
         } else if (targetOrderId && !stopOrderId && price <= stopPrice && !isCancelling) {
           isCancelling = true;
           logger.info(`<<< Cancel TARGET order ${symbol} : #${targetOrderId} - (reason: stop price ${stopPrice} was hit).`);
@@ -410,13 +412,17 @@ const binance = new Binance().options({
         return;
       }
 
+      // allow script invoked cancellations where the body of the callback has not yet executed
+      if (orderStatus === 'CANCELED' && isCancelling) {
+        return;
+      }
+
       if (orderStatus !== 'FILLED') {
         logger.error(`Order ${orderStatus}. Reason: ${data.r}`);
         if (orderId === stopOrderId) {
-          logger.error(`WARNING STOP ORDER ${symbol} : ${stopOrderId} WAS NOT FILLED - YOU MUST CLOSE THE REMAINING POSITION OF ${stopSellAmount} MANUALLY.`);
+          logger.error(`WARNING STOP ORDER ${symbol} : ${stopOrderId} WAS NOT FILLED - SUBMITTING STOP FOR ${stopSellAmount}.`);
+          placeStopOrder();
         }
-        // TODO: What if the incomplete order was a sell or target - we need script to stay
-        //  alive in this case.
         process.exit(1);
       }
 
@@ -459,6 +465,7 @@ const binance = new Binance().options({
           }
           logger.info(`<<< BUY Order ${pair} : #${buyOrderId} cancelled. <<<`);
           logger.debug(`${pair} cancel response: ${JSON.stringify(response)}`);
+          process.exit(0);
         });
       } else if (stopOrderId || targetOrderId) {
         logger.info('Order has already triggered - stop and target will remain but will not be managed.');
