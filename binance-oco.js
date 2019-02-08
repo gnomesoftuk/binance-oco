@@ -207,6 +207,11 @@ const binance = new Binance().options({
         process.exit(1);
       }
 
+      if (targetPrice < buyPrice) {
+        console.error(`Target price ${targetPrice} cannot be less than buy price ${buyPrice}.`);
+        process.exit(1);
+      }
+
       const remainingAmount = amount - targetSellAmount;
       if (remainingAmount && stopPrice) {
         if (remainingAmount < minQty) {
@@ -412,7 +417,7 @@ const binance = new Binance().options({
         return;
       }
 
-      // allow script invoked cancellations where the body of the callback has not yet executed
+      // allow script invoked cancellations where the response has not yet been processed - defeat race condition
       if (orderStatus === 'CANCELED' && isCancelling) {
         return;
       }
